@@ -1,0 +1,7 @@
+{
+  "intercept": -2.1,
+  "b_engage": -0.55,
+  "b_tickets": 0.28,
+  "b_apac_business": 1.15,
+  "defect_start": "2024-09-01"
+}

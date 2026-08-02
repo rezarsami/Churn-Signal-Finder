@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Churn Signal Finder · Retention Ops Console</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#171d26; --panel-2:#1d2530; --line:#2a3542;
+    --ink:#e6edf3; --ink-dim:#8b98a8; --ink-faint:#5a6674;
+    --amber:#f5a623; --amber-glow:rgba(245,166,35,.14);
+    --teal:#3dd7c8; --violet:#8b7cf6; --rose:#f2617a;
+    --ok:#4ade80;
+    --mono:'SF Mono',ui-monospace,'Cascadia Code','Roboto Mono',Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;
+    -webkit-font-smoothing:antialiased;padding-bottom:60px}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+  /* Header */
+  header{border-bottom:1px solid var(--line);background:linear-gradient(180deg,#131922,#0f1419);
+    position:sticky;top:0;z-index:20;backdrop-filter:blur(8px)}
+  .hbar{display:flex;align-items:center;justify-content:space-between;padding:16px 0;flex-wrap:wrap;gap:12px}
+  .brand{display:flex;align-items:center;gap:12px}
+  .logo{width:32px;height:32px;border-radius:7px;background:var(--panel-2);border:1px solid var(--line);
+    display:grid;place-items:center;position:relative;overflow:hidden}
+  .logo::before{content:"";position:absolute;inset:0;background:
+    repeating-linear-gradient(90deg,transparent 0 4px,var(--teal) 4px 5px);opacity:.5}
+  .logo::after{content:"";width:14px;height:14px;border:2px solid var(--amber);border-radius:50%;
+    border-right-color:transparent;z-index:1}
+  .brand h1{font-size:15px;font-weight:600;letter-spacing:.3px}
+  .brand .sub{font-family:var(--mono);font-size:11px;color:var(--ink-faint);letter-spacing:.5px}
+  .meta{font-family:var(--mono);font-size:11px;color:var(--ink-dim);text-align:right}
+  .meta .live{color:var(--ok)}
+  .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ok);
+    margin-right:5px;box-shadow:0 0 8px var(--ok);animation:pulse 2s infinite}
+  @keyframes pulse{50%{opacity:.4}}
+
+  /* intro */
+  .intro{padding:34px 0 22px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;
+    color:var(--amber);margin-bottom:12px}
+  .intro h2{font-size:27px;font-weight:600;letter-spacing:-.4px;max-width:760px;line-height:1.25}
+  .intro p{color:var(--ink-dim);margin-top:12px;max-width:680px;font-size:14px}
+
+  /* KPI row */
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:8px 0 30px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 16px 14px;
+    position:relative;overflow:hidden}
+  .kpi .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.8px;text-transform:uppercase;
+    color:var(--ink-faint)}
+  .kpi .val{font-size:26px;font-weight:600;margin-top:8px;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+  .kpi .note{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin-top:3px}
+  .kpi.alert{border-color:rgba(245,166,35,.4);background:linear-gradient(180deg,var(--amber-glow),var(--panel))}
+  .kpi.alert .val{color:var(--amber)}
+  .kpi .spark{position:absolute;right:12px;top:14px;font-family:var(--mono);font-size:10px}
+  .up{color:var(--rose)} .down{color:var(--ok)}
+
+  /* section */
+  section{margin:34px 0}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:16px}
+  .sec-num{font-family:var(--mono);font-size:12px;color:var(--amber);letter-spacing:1px}
+  .sec-head h3{font-size:16px;font-weight:600}
+  .sec-head .desc{font-size:13px;color:var(--ink-dim);margin-left:auto;max-width:420px;text-align:right}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .grid-hero{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+  .card h4{font-size:13px;font-weight:600;margin-bottom:2px}
+  .card .cap{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-bottom:14px}
+  .chart-box{position:relative;height:240px}
+  .chart-box.tall{height:300px}
+
+  /* heatmap */
+  .heat{width:100%;border-collapse:separate;border-spacing:4px;font-family:var(--mono)}
+  .heat th{font-size:10px;color:var(--ink-faint);font-weight:500;text-transform:uppercase;
+    letter-spacing:.5px;padding:4px;text-align:center}
+  .heat td.plan{color:var(--ink-dim);font-size:11px;text-align:left;padding-right:8px;white-space:nowrap}
+  .heat td.cell{text-align:center;padding:9px 4px;border-radius:6px;font-size:12px;font-weight:600;
+    color:#0f1419;cursor:default;transition:transform .12s}
+  .heat td.cell:hover{transform:scale(1.06)}
+  .heat td.cell.flag{outline:2px solid var(--amber);outline-offset:1px}
+
+  .testnote{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);
+    font-family:var(--mono);font-size:11px;color:var(--ink-dim);line-height:1.6}
+  .testnote b{color:var(--teal)}
+  /* insight panel */
+  .insight{background:linear-gradient(135deg,#1c1710,var(--panel));border:1px solid rgba(245,166,35,.35);
+    border-radius:14px;padding:24px;position:relative;overflow:hidden}
+  .insight::before{content:"⚠ FINDING";position:absolute;top:16px;right:18px;font-family:var(--mono);
+    font-size:10px;letter-spacing:1.5px;color:var(--amber);opacity:.9}
+  .insight h4{font-size:17px;font-weight:600;margin-bottom:10px;max-width:80%}
+  .insight p{font-size:13px;color:var(--ink-dim);margin-bottom:8px;max-width:92%}
+  .insight .stats{display:flex;gap:26px;margin:18px 0 6px;flex-wrap:wrap}
+  .insight .stat .n{font-size:22px;font-weight:600;color:var(--amber);font-variant-numeric:tabular-nums}
+  .insight .stat .l{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-transform:uppercase;
+    letter-spacing:.6px;margin-top:2px}
+  .rec{margin-top:16px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--ink)}
+  .rec b{color:var(--amber)}
+
+  /* method / pipeline */
+  .pipe{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;font-family:var(--mono)}
+  .step{background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:14px}
+  .step .s{font-size:10px;color:var(--amber);letter-spacing:1px}
+  .step .t{font-size:12px;color:var(--ink);margin:6px 0 4px;font-family:var(--sans);font-weight:600}
+  .step .d{font-size:11px;color:var(--ink-dim);line-height:1.5}
+  code.k{background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;
+    font-family:var(--mono);font-size:11px;color:var(--teal)}
+
+  footer{border-top:1px solid var(--line);margin-top:40px;padding-top:20px;
+    font-family:var(--mono);font-size:11px;color:var(--ink-faint);display:flex;
+    justify-content:space-between;flex-wrap:wrap;gap:8px}
+
+  @media(max-width:860px){
+    .kpis{grid-template-columns:repeat(2,1fr)}
+    .grid2,.grid-hero{grid-template-columns:1fr}
+    .pipe{grid-template-columns:1fr 1fr}
+    .sec-head .desc{display:none}
+    .intro h2{font-size:22px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap hbar">
+    <div class="brand">
+      <div class="logo"></div>
+      <div>
+        <h1>Churn Signal Finder</h1>
+        <div class="sub">product operations · retention analysis</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div><span class="dot"></span><span class="live">DATASET LOADED</span></div>
+      <div id="rowmeta">— users · cleaned pipeline</div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="intro">
+    <div class="eyebrow">Product Operations Analyst · Portfolio Case Study</div>
+    <h2>A churn signal was hiding inside one plan-and-region pocket. This console mines it out, tests that it's real, and sizes the revenue at stake.</h2>
+    <p>Starting from a raw 12K-row export with duplicates, null regions, and inconsistent plan labels, I built a repeatable cleaning pipeline, then tested churn across every plan × region cell. Only pockets that are both statistically distinguishable from baseline and large enough to act on get flagged — 16 cells tested, 1 flagged.</p>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h3>Where is churn concentrated?</h3>
+      <span class="desc">Segmenting a single blended rate into plan and region views is the first move — the blended 13.7% hides a 25% pocket.</span>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h4>Churn by plan</h4>
+        <div class="cap">% of users churned · by subscription tier</div>
+        <div class="chart-box"><canvas id="planChart"></canvas></div>
+      </div>
+      <div class="card">
+        <h4>Churn by region</h4>
+        <div class="cap">% of users churned · by geography</div>
+        <div class="chart-box"><canvas id="regionChart"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h3>Test every cell, flag only what's real</h3>
+      <span class="desc">Each plan × region cell is compared against the rest of the base. Flagging one cell out of sixteen — not eyeballing a heatmap — is what keeps this honest.</span>
+    </div>
+    <div class="grid-hero">
+      <div class="card">
+        <h4>Churn rate · plan × region</h4>
+        <div class="cap">darker = higher churn · outlined cell = flagged (significant + large)</div>
+        <table class="heat" id="heat"></table>
+        <div class="testnote" id="testnote"></div>
+      </div>
+      <div class="insight">
+        <h4 id="insightTitle"></h4>
+        <p>The pocket surfaced after Sep 2024 and tracks with a jump in support tickets and a drop in CSAT — the signature of a regional product defect, not a pricing problem. It clears a two-proportion test after correcting for all sixteen comparisons.</p>
+        <div class="stats" id="insightStats"></div>
+        <div class="rec">
+          <b>Recommendation →</b> Route this cohort to a targeted save-play and open a defect investigation with Eng on the APAC scheduling sync. At an assumed <b id="saveRate"></b> save rate, that's the recoverable revenue shown above.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h3>When did it start?</h3>
+      <span class="desc">Cohorting by signup month isolates the break point — the two lines separate sharply in Q3 2024.</span>
+    </div>
+    <div class="card">
+      <h4>Monthly churn · flagged pocket vs. everyone else</h4>
+      <div class="cap">% churned by signup-month cohort</div>
+      <div class="chart-box tall"><canvas id="trendChart"></canvas></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h3>Revenue lens</h3>
+      <span class="desc">Ops decisions get funded when they're framed in dollars, not percentages.</span>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h4>Active MRR by plan</h4>
+        <div class="cap">monthly recurring revenue · non-churned accounts</div>
+        <div class="chart-box"><canvas id="mrrChart"></canvas></div>
+      </div>
+      <div class="card">
+        <h4>Acquisition channel quality</h4>
+        <div class="cap">volume vs. churn — bubble size = user count</div>
+        <div class="chart-box"><canvas id="channelChart"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <h3>How it was built</h3>
+      <span class="desc">The pipeline is reproducible — rerunning it on next month's export regenerates every view above.</span>
+    </div>
+    <div class="pipe">
+      <div class="step"><div class="s">EXTRACT</div><div class="t">Raw export</div><div class="d">12,080 rows ingested with <code class="k">pandas</code> from the product DB dump.</div></div>
+      <div class="step"><div class="s">CLEAN</div><div class="t">Normalize</div><div class="d">Dropped 80 dupes, filled null regions → <code class="k">Unknown</code>, fixed plan casing, imputed engagement medians.</div></div>
+      <div class="step"><div class="s">MINE + TEST</div><div class="t">Segment</div><div class="d">Tested churn in all 16 plan × region cells vs. baseline; flagged only the significant, high-magnitude one.</div></div>
+      <div class="step"><div class="s">SHIP</div><div class="t">Dashboard</div><div class="d">Exported to JSON, rendered as this self-contained interactive console. Rerun the pipeline and every number updates.</div></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>CHURN_SIGNAL_FINDER_v1 · synthetic dataset (12,080 rows) built for portfolio demonstration</span>
+    <span>Stack: Python · pandas · Chart.js</span>
+  </footer>
+</div>
+
+<script>
+const D = {"kpis": {"total_mrr": 7224621, "active_users": 9854, "churn_rate": 17.9, "avg_csat": 3.95, "rows_cleaned": 80}, "churn_by_plan": {"Business": 17.9, "Enterprise": 12.1, "Free": 20.2, "Starter": 15.8}, "churn_by_region": {"APAC": 20.4, "EMEA": 17.7, "LATAM": 18.2, "Unknown": 16.8}, "mrr_by_plan": {"Business": 1121807, "Enterprise": 5935174, "Free": 0, "Starter": 167640}, "cells": [{"plan": "Enterprise", "region": "APAC", "n": 170, "churn": 13.5, "lift": 0.76, "z": -1.49, "p_adj": 1.0, "flagged": false}, {"plan": "Enterprise", "region": "Unknown", "n": 355, "churn": 11.0, "lift": 0.61, "z": -3.44, "p_adj": 0.009, "flagged": false}, {"plan": "Enterprise", "region": "EMEA", "n": 213, "churn": 11.3, "lift": 0.63, "z": -2.54, "p_adj": 0.176, "flagged": false}, {"plan": "Enterprise", "region": "LATAM", "n": 90, "churn": 15.6, "lift": 0.87, "z": -0.58, "p_adj": 1.0, "flagged": false}, {"plan": "Free", "region": "APAC", "n": 933, "churn": 21.1, "lift": 1.18, "z": 2.68, "p_adj": 0.117, "flagged": false}, {"plan": "Free", "region": "Unknown", "n": 2243, "churn": 19.3, "lift": 1.08, "z": 1.95, "p_adj": 0.823, "flagged": false}, {"plan": "Free", "region": "EMEA", "n": 1567, "churn": 20.1, "lift": 1.12, "z": 2.46, "p_adj": 0.224, "flagged": false}, {"plan": "Free", "region": "LATAM", "n": 538, "churn": 22.9, "lift": 1.28, "z": 3.08, "p_adj": 0.033, "flagged": false}, {"plan": "Business", "region": "APAC", "n": 409, "churn": 30.1, "lift": 1.68, "z": 6.55, "p_adj": 0.0, "flagged": true}, {"plan": "Business", "region": "Unknown", "n": 941, "churn": 14.8, "lift": 0.83, "z": -2.59, "p_adj": 0.151, "flagged": false}, {"plan": "Business", "region": "EMEA", "n": 631, "churn": 16.2, "lift": 0.9, "z": -1.16, "p_adj": 1.0, "flagged": false}, {"plan": "Business", "region": "LATAM", "n": 205, "churn": 13.7, "lift": 0.76, "z": -1.59, "p_adj": 1.0, "flagged": false}, {"plan": "Starter", "region": "APAC", "n": 730, "churn": 15.8, "lift": 0.88, "z": -1.55, "p_adj": 1.0, "flagged": false}, {"plan": "Starter", "region": "Unknown", "n": 1462, "churn": 15.6, "lift": 0.87, "z": -2.44, "p_adj": 0.237, "flagged": false}, {"plan": "Starter", "region": "EMEA", "n": 1129, "churn": 16.6, "lift": 0.93, "z": -1.22, "p_adj": 1.0, "flagged": false}, {"plan": "Starter", "region": "LATAM", "n": 384, "churn": 14.6, "lift": 0.82, "z": -1.72, "p_adj": 1.0, "flagged": false}], "trend": {"months": ["2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06", "2024-07", "2024-08", "2024-09", "2024-10", "2024-11", "2024-12", "2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06"], "pocket": [20.0, 10.0, 8.3, 9.4, 14.3, 16.1, 11.1, 18.2, 46.2, 44.8, 43.8, 42.9, 40.9, 44.4, 34.6, 50.0, 40.0, 47.4], "rest": [16.6, 15.7, 16.2, 18.6, 16.6, 15.5, 19.1, 16.7, 18.9, 18.5, 18.3, 17.1, 18.5, 17.2, 18.5, 16.4, 15.7, 20.7]}, "hot": {"plan": "Business", "region": "APAC", "churn": 30.1, "lift": 1.68, "p_adj": 0.0, "n": 409}, "insight": {"at_risk_monthly": 177509, "recoverable_annual": 852043, "save_rate": 40, "csat_hot": 3.04, "csat_rest": 4.01, "tix_lift": 3.1, "n_tests": 16, "n_flagged": 1}, "channel": [{"acquisition_channel": "Organic", "users": 5970, "churn": 18.0}, {"acquisition_channel": "Paid", "users": 3013, "churn": 18.1}, {"acquisition_channel": "Partner", "users": 1191, "churn": 16.8}, {"acquisition_channel": "Referral", "users": 1826, "churn": 17.8}]}
+;
+const AMBER='#f5a623',TEAL='#3dd7c8',VIOLET='#8b7cf6',ROSE='#f2617a',DIM='#8b98a8',LINE='#2a3542';
+const fmt$=n=>'$'+n.toLocaleString();
+const fmtK=n=>n>=1e6?'$'+(n/1e6).toFixed(2)+'M':n>=1e3?'$'+(n/1e3).toFixed(0)+'k':'$'+n;
+
+Chart.defaults.color=DIM;
+Chart.defaults.font.family="'SF Mono',ui-monospace,Menlo,monospace";
+Chart.defaults.font.size=11;
+
+document.getElementById('rowmeta').textContent=
+  D.kpis.active_users.toLocaleString()+' active · '+D.kpis.rows_cleaned+' dupes removed';
+
+// KPIs
+const kpis=[
+  {lbl:'Active MRR',val:fmtK(D.kpis.total_mrr),note:'non-churned accounts'},
+  {lbl:'Active Users',val:D.kpis.active_users.toLocaleString(),note:'of 12,000 total'},
+  {lbl:'Blended Churn',val:D.kpis.churn_rate+'%',note:'hides the real story',spark:'▲'},
+  {lbl:'Avg CSAT',val:D.kpis.avg_csat,note:'1–5 support rating'},
+  {lbl:'MRR At Risk',val:fmtK(D.insight.at_risk_monthly)+'/mo',note:D.hot.plan+'·'+D.hot.region+' pocket',alert:true},
+];
+document.getElementById('kpis').innerHTML=kpis.map(k=>`
+  <div class="kpi ${k.alert?'alert':''}">
+    ${k.spark?`<span class="spark up">${k.spark}</span>`:''}
+    <div class="lbl">${k.lbl}</div>
+    <div class="val">${k.val}</div>
+    <div class="note">${k.note}</div>
+  </div>`).join('');
+
+// insight title + stats
+document.getElementById('insightTitle').textContent=
+  `${D.hot.plan}-tier customers in ${D.hot.region} churn at ${D.hot.churn}% — ${D.hot.lift}× the baseline.`;
+document.getElementById('saveRate').textContent=D.insight.save_rate+'%';
+document.getElementById('insightStats').innerHTML=`
+  <div class="stat"><div class="n">${fmtK(D.insight.recoverable_annual)}</div><div class="l">recoverable / yr @ ${D.insight.save_rate}% save</div></div>
+  <div class="stat"><div class="n">${D.insight.csat_hot}</div><div class="l">CSAT (vs ${D.insight.csat_rest} rest)</div></div>
+  <div class="stat"><div class="n">${D.insight.tix_lift}×</div><div class="l">support-ticket lift</div></div>`;
+
+const gridCfg={grid:{color:LINE,drawBorder:false},ticks:{color:DIM}};
+const noGrid={grid:{display:false},ticks:{color:DIM}};
+
+// plan chart
+new Chart(planChart,{type:'bar',data:{labels:Object.keys(D.churn_by_plan),
+  datasets:[{data:Object.values(D.churn_by_plan),backgroundColor:Object.keys(D.churn_by_plan).map(p=>p==='Business'?AMBER:'#2f3a48'),borderRadius:5}]},
+  options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.parsed.y+'% churn'}}},
+    scales:{y:{...gridCfg,ticks:{callback:v=>v+'%',color:DIM}},x:noGrid}}});
+
+// region chart
+new Chart(regionChart,{type:'bar',data:{labels:Object.keys(D.churn_by_region),
+  datasets:[{data:Object.values(D.churn_by_region),backgroundColor:Object.keys(D.churn_by_region).map(r=>r==='APAC'?AMBER:'#2f3a48'),borderRadius:5}]},
+  options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.parsed.y+'% churn'}}},
+    scales:{y:{...gridCfg,ticks:{callback:v=>v+'%',color:DIM}},x:noGrid}}});
+
+// heatmap — driven by the tested cells
+const plans=[...new Set(D.cells.map(d=>d.plan))];
+const regions=[...new Set(D.cells.map(d=>d.region))];
+const maxC=Math.max(...D.cells.map(d=>d.churn));
+const cellColor=v=>{const t=v/maxC;return `rgba(245,166,35,${(.12+t*.85).toFixed(2)})`};
+let html='<tr><th></th>'+regions.map(r=>`<th>${r}</th>`).join('')+'</tr>';
+plans.forEach(p=>{
+  html+=`<tr><td class="plan">${p}</td>`;
+  regions.forEach(r=>{
+    const rec=D.cells.find(d=>d.plan===p&&d.region===r);
+    if(!rec){html+=`<td class="cell" style="background:#1d2530;color:var(--ink-faint)" title="too few users to test">·</td>`;return;}
+    const flag=rec.flagged?'flag':'';
+    html+=`<td class="cell ${flag}" style="background:${cellColor(rec.churn)}" title="${p}·${r}: ${rec.churn}% churn · ${rec.lift}× baseline · adj-p ${rec.p_adj}">${rec.churn}</td>`;
+  });
+  html+='</tr>';
+});
+document.getElementById('heat').innerHTML=html;
+document.getElementById('testnote').innerHTML=
+  `<b>${D.insight.n_tests}</b> cells tested · <b>${D.insight.n_flagged}</b> flagged after correcting for multiple comparisons. `+
+  `A cell is flagged only if it clears significance <em>and</em> runs ≥1.4× the baseline rate — statistically real and big enough to act on.`;
+
+// trend
+new Chart(trendChart,{type:'line',data:{labels:D.trend.months.map(m=>m.slice(2)),
+  datasets:[
+    {label:D.hot.plan+'·'+D.hot.region,data:D.trend.pocket,borderColor:AMBER,backgroundColor:'rgba(245,166,35,.08)',fill:true,tension:.35,borderWidth:2.5,pointRadius:0,pointHoverRadius:5},
+    {label:'All others',data:D.trend.rest,borderColor:TEAL,tension:.35,borderWidth:2,pointRadius:0,pointHoverRadius:5}
+  ]},
+  options:{plugins:{legend:{labels:{usePointStyle:true,boxWidth:8,padding:16}},
+    tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y+'%'}}},
+    scales:{y:{...gridCfg,ticks:{callback:v=>v+'%',color:DIM}},x:{...noGrid,ticks:{maxTicksLimit:10,color:DIM}}}}});
+
+// mrr
+new Chart(mrrChart,{type:'doughnut',data:{labels:Object.keys(D.mrr_by_plan).filter(k=>D.mrr_by_plan[k]>0),
+  datasets:[{data:Object.keys(D.mrr_by_plan).filter(k=>D.mrr_by_plan[k]>0).map(k=>D.mrr_by_plan[k]),
+    backgroundColor:[AMBER,TEAL,VIOLET,ROSE],borderColor:'#171d26',borderWidth:3}]},
+  options:{cutout:'62%',plugins:{legend:{position:'right',labels:{usePointStyle:true,boxWidth:8,padding:12}},
+    tooltip:{callbacks:{label:c=>c.label+': '+fmtK(c.parsed)}}}}});
+
+// channel bubble
+new Chart(channelChart,{type:'bubble',data:{datasets:D.channel.map((c,i)=>({
+  label:c.acquisition_channel,
+  data:[{x:c.users,y:c.churn,r:Math.sqrt(c.users)/6}],
+  backgroundColor:[AMBER,TEAL,VIOLET,ROSE][i]+'cc',borderColor:[AMBER,TEAL,VIOLET,ROSE][i]}))},
+  options:{plugins:{legend:{labels:{usePointStyle:true,boxWidth:8,padding:12}},
+    tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.raw.x.toLocaleString()+' users · '+c.raw.y+'% churn'}}},
+    scales:{x:{...gridCfg,title:{display:true,text:'users',color:DIM},ticks:{color:DIM}},
+      y:{...gridCfg,title:{display:true,text:'churn %',color:DIM},ticks:{callback:v=>v+'%',color:DIM}}}}});
+</script>
+</body>
+</html>
